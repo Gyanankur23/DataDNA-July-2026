@@ -1,9 +1,13 @@
 import streamlit as st
-import plotly.express as px
-import plotly.graph_objects as go
+import matplotlib.pyplot as plt
+import seaborn as sns
 import pandas as pd
 import numpy as np
 from data_pipeline import process_data
+
+# Set style
+plt.style.use('dark_background')
+sns.set_palette("husl")
 
 # Page Configuration
 st.set_page_config(
@@ -199,17 +203,18 @@ COLOR_THEME = {
     'surface': '#1E293B'
 }
 
-def create_chart_template(fig):
-    """Apply unified chart styling."""
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor=COLOR_THEME['background'],
-        plot_bgcolor=COLOR_THEME['surface'],
-        font=dict(color='#F8FAFC'),
-        margin=dict(l=20, r=20, t=40, b=20),
-        height=400
-    )
-    return fig
+def create_matplotlib_figure():
+    """Create a matplotlib figure with dark theme styling."""
+    fig, ax = plt.subplots(figsize=(10, 5))
+    fig.patch.set_facecolor(COLOR_THEME['background'])
+    ax.set_facecolor(COLOR_THEME['surface'])
+    ax.tick_params(colors='#F8FAFC')
+    ax.xaxis.label.set_color('#F8FAFC')
+    ax.yaxis.label.set_color('#F8FAFC')
+    ax.title.set_color('#F8FAFC')
+    for spine in ax.spines.values():
+        spine.set_edgecolor('#475569')
+    return fig, ax
 
 # Tab 1: Global Overview & Economy Divide
 with tab1:
@@ -220,19 +225,34 @@ with tab1:
     with col1:
         # AI Adoption by Development Tier
         tier_adoption = filtered_df.groupby(['development_tier', 'era'])['ai_adoption_rate'].mean().reset_index()
-        fig1 = px.bar(
-            tier_adoption,
-            x='development_tier',
-            y='ai_adoption_rate',
-            color='era',
-            barmode='group',
-            title="AI Adoption Rate by Development Tier",
-            color_discrete_map={'GenAI Era': COLOR_THEME['primary'], 'Pre-GenAI': COLOR_THEME['secondary']},
-            text='ai_adoption_rate'
-        )
-        fig1.update_yaxes(title_text="Adoption Rate (%)")
-        fig1.update_traces(texttemplate='%{y:.1f}%', textposition='outside')
-        st.plotly_chart(create_chart_template(fig1), use_container_width=True)
+        fig, ax = create_matplotlib_figure()
+        tiers = tier_adoption['development_tier'].unique()
+        x = np.arange(len(tiers))
+        width = 0.35
+        
+        genai_data = tier_adoption[tier_adoption['era'] == 'GenAI Era']['ai_adoption_rate'].values
+        pre_genai_data = tier_adoption[tier_adoption['era'] == 'Pre-GenAI']['ai_adoption_rate'].values
+        
+        bars1 = ax.bar(x - width/2, genai_data, width, label='GenAI Era', color=COLOR_THEME['primary'])
+        bars2 = ax.bar(x + width/2, pre_genai_data, width, label='Pre-GenAI', color=COLOR_THEME['secondary'])
+        
+        ax.set_xlabel('Development Tier')
+        ax.set_ylabel('Adoption Rate (%)')
+        ax.set_title('AI Adoption Rate by Development Tier')
+        ax.set_xticks(x)
+        ax.set_xticklabels(tiers)
+        ax.legend()
+        
+        # Add value labels
+        for bar in bars1:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height, f'{height:.1f}%', ha='center', va='bottom')
+        for bar in bars2:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height, f'{height:.1f}%', ha='center', va='bottom')
+        
+        plt.tight_layout()
+        st.pyplot(fig)
     
     with col2:
         # Infrastructure vs Policy Maturity
@@ -240,57 +260,65 @@ with tab1:
             country_agg['country_name'].isin(filtered_df['country_name'].unique())
         ].copy()
         country_filtered['ai_adoption_rate'] = country_filtered['ai_adoption_rate'].fillna(0)
-        fig2 = px.scatter(
-            country_filtered,
-            x='digital_infrastructure_score',
-            y='displacement_risk_index',
-            size='ai_adoption_rate',
-            color='development_tier',
-            hover_data=['country_name', 'ai_adoption_rate'],
-            title="Infrastructure vs Displacement Risk",
-            color_discrete_map={'Developed': COLOR_THEME['primary'], 'Emerging': COLOR_THEME['warning']},
-            custom_data=['country_name', 'ai_adoption_rate']
-        )
-        fig2.update_xaxes(title_text="Digital Infrastructure Score")
-        fig2.update_yaxes(title_text="Displacement Risk Index")
-        fig2.update_traces(
-            hovertemplate='<b>%{customdata[0]}</b><br>' +
-                           'Infrastructure: %{x:.1f}<br>' +
-                           'Displacement Risk: %{y:.1f}<br>' +
-                           'AI Adoption: %{customdata[1]:.1f}%<extra></extra>'
-        )
-        st.plotly_chart(create_chart_template(fig2), use_container_width=True)
+        fig, ax = create_matplotlib_figure()
+        
+        developed = country_filtered[country_filtered['development_tier'] == 'Developed']
+        emerging = country_filtered[country_filtered['development_tier'] == 'Emerging']
+        
+        ax.scatter(developed['digital_infrastructure_score'], developed['displacement_risk_index'], 
+                  s=developed['ai_adoption_rate']*10, c=COLOR_THEME['primary'], label='Developed', alpha=0.6)
+        ax.scatter(emerging['digital_infrastructure_score'], emerging['displacement_risk_index'], 
+                  s=emerging['ai_adoption_rate']*10, c=COLOR_THEME['warning'], label='Emerging', alpha=0.6)
+        
+        ax.set_xlabel('Digital Infrastructure Score')
+        ax.set_ylabel('Displacement Risk Index')
+        ax.set_title('Infrastructure vs Displacement Risk')
+        ax.legend()
+        plt.tight_layout()
+        st.pyplot(fig)
     
     col3, col4 = st.columns(2)
     
     with col3:
         # Regional AI Adoption Heatmap
         regional_adoption = filtered_df.groupby(['region', 'year'])['ai_adoption_rate'].mean().reset_index()
-        fig3 = px.imshow(
-            regional_adoption.pivot(index='region', columns='year', values='ai_adoption_rate'),
-            title="Regional AI Adoption Heatmap",
-            color_continuous_scale='Blues',
-            aspect='auto',
-            text_auto=True
-        )
-        fig3.update_traces(
-            hovertemplate='Region: %{y}<br>Year: %{x}<br>Adoption: %{z:.1f}%<extra></extra>'
-        )
-        st.plotly_chart(create_chart_template(fig3), use_container_width=True)
+        fig, ax = create_matplotlib_figure()
+        
+        pivot_data = regional_adoption.pivot(index='region', columns='year', values='ai_adoption_rate')
+        im = ax.imshow(pivot_data.values, cmap='Blues', aspect='auto')
+        
+        ax.set_xticks(np.arange(len(pivot_data.columns)))
+        ax.set_yticks(np.arange(len(pivot_data.index)))
+        ax.set_xticklabels(pivot_data.columns)
+        ax.set_yticklabels(pivot_data.index)
+        ax.set_title('Regional AI Adoption Heatmap')
+        
+        # Add text annotations
+        for i in range(len(pivot_data.index)):
+            for j in range(len(pivot_data.columns)):
+                text = ax.text(j, i, f'{pivot_data.values[i, j]:.1f}%',
+                             ha="center", va="center", color="white")
+        
+        plt.colorbar(im, ax=ax, label='Adoption Rate (%)')
+        plt.tight_layout()
+        st.pyplot(fig)
     
     with col4:
         # Policy Maturity Distribution
         policy_dist = filtered_df.groupby(['ai_policy_maturity', 'development_tier']).size().reset_index(name='count')
-        fig4 = px.sunburst(
-            policy_dist,
-            path=['development_tier', 'ai_policy_maturity'],
-            values='count',
-            title="AI Policy Maturity Distribution"
-        )
-        fig4.update_traces(
-            hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>'
-        )
-        st.plotly_chart(create_chart_template(fig4), use_container_width=True)
+        fig, ax = create_matplotlib_figure()
+        
+        # Create a simple bar chart instead of sunburst
+        policy_pivot = policy_dist.pivot(index='ai_policy_maturity', columns='development_tier', values='count').fillna(0)
+        policy_pivot.plot(kind='bar', ax=ax, color=[COLOR_THEME['primary'], COLOR_THEME['warning']])
+        
+        ax.set_xlabel('AI Policy Maturity')
+        ax.set_ylabel('Count')
+        ax.set_title('AI Policy Maturity Distribution')
+        ax.legend(title='Development Tier')
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        st.pyplot(fig)
 
 # Tab 2: Workforce Displacement & GenAI Shift
 with tab2:
@@ -301,20 +329,22 @@ with tab2:
     with col1:
         # Displacement Risk by Industry
         industry_risk = filtered_df.groupby('industry_name')['displacement_risk_index'].mean().sort_values(ascending=False).head(15).reset_index()
-        fig5 = px.bar(
-            industry_risk,
-            x='displacement_risk_index',
-            y='industry_name',
-            orientation='h',
-            title="Top 15 Industries by Displacement Risk",
-            color='displacement_risk_index',
-            color_continuous_scale='Reds',
-            text='displacement_risk_index'
-        )
-        fig5.update_xaxes(title_text="Displacement Risk Index (0-10)")
-        fig5.update_yaxes(title_text="")
-        fig5.update_traces(texttemplate='%{x:.1f}', textposition='outside')
-        st.plotly_chart(create_chart_template(fig5), use_container_width=True)
+        fig, ax = create_matplotlib_figure()
+        
+        bars = ax.barh(industry_risk['industry_name'], industry_risk['displacement_risk_index'], 
+                      color=COLOR_THEME['danger'])
+        ax.set_xlabel('Displacement Risk Index (0-10)')
+        ax.set_ylabel('')
+        ax.set_title('Top 15 Industries by Displacement Risk')
+        
+        # Add value labels
+        for bar in bars:
+            width = bar.get_width()
+            ax.text(width, bar.get_y() + bar.get_height()/2, f'{width:.1f}', 
+                   ha='left', va='center')
+        
+        plt.tight_layout()
+        st.pyplot(fig)
     
     with col2:
         # Skill Category Vulnerability
@@ -326,46 +356,40 @@ with tab2:
         skill_risk = skill_risk.copy()
         skill_risk['workforce_size'] = skill_risk['workforce_size'].fillna(0)
         skill_risk['ai_replaceability_score'] = skill_risk['ai_replaceability_score'].fillna(0)
-        fig6 = px.scatter(
-            skill_risk,
-            x='ai_replaceability_score',
-            y='displacement_risk_index',
-            size='workforce_size',
-            hover_data=['skill_category_name'],
-            title="Skill Category Vulnerability Matrix",
-            color='displacement_risk_index',
-            color_continuous_scale='Reds',
-            custom_data=['skill_category_name', 'workforce_size']
-        )
-        fig6.update_xaxes(title_text="AI Replaceability Score")
-        fig6.update_yaxes(title_text="Displacement Risk Index")
-        fig6.update_traces(
-            hovertemplate='<b>%{customdata[0]}</b><br>' +
-                           'Replaceability: %{x:.1f}<br>' +
-                           'Displacement Risk: %{y:.1f}<br>' +
-                           'Workforce: %{customdata[1]:,.0f}<extra></extra>'
-        )
-        st.plotly_chart(create_chart_template(fig6), use_container_width=True)
+        fig, ax = create_matplotlib_figure()
+        
+        scatter = ax.scatter(skill_risk['ai_replaceability_score'], skill_risk['displacement_risk_index'], 
+                           s=skill_risk['workforce_size']/1000, c=skill_risk['displacement_risk_index'], 
+                           cmap='Reds', alpha=0.6)
+        ax.set_xlabel('AI Replaceability Score')
+        ax.set_ylabel('Displacement Risk Index')
+        ax.set_title('Skill Category Vulnerability Matrix')
+        plt.colorbar(scatter, ax=ax, label='Displacement Risk')
+        plt.tight_layout()
+        st.pyplot(fig)
     
     col3, col4 = st.columns(2)
     
     with col3:
         # GenAI Era Impact on Adoption
         era_comparison = filtered_df.groupby(['era', 'year_quarter_label'])['ai_adoption_rate'].mean().reset_index()
-        fig7 = px.line(
-            era_comparison,
-            x='year_quarter_label',
-            y='ai_adoption_rate',
-            color='era',
-            title="AI Adoption Trends: Pre-GenAI vs GenAI Era",
-            markers=True,
-            color_discrete_map={'GenAI Era': COLOR_THEME['primary'], 'Pre-GenAI': COLOR_THEME['secondary']},
-            text='ai_adoption_rate'
-        )
-        fig7.update_yaxes(title_text="Adoption Rate (%)")
-        fig7.update_xaxes(title_text="")
-        fig7.update_traces(texttemplate='%{y:.1f}%', textposition='top center')
-        st.plotly_chart(create_chart_template(fig7), use_container_width=True)
+        fig, ax = create_matplotlib_figure()
+        
+        genai_data = era_comparison[era_comparison['era'] == 'GenAI Era']
+        pre_genai_data = era_comparison[era_comparison['era'] == 'Pre-GenAI']
+        
+        ax.plot(genai_data['year_quarter_label'], genai_data['ai_adoption_rate'], 
+               marker='o', color=COLOR_THEME['primary'], label='GenAI Era')
+        ax.plot(pre_genai_data['year_quarter_label'], pre_genai_data['ai_adoption_rate'], 
+               marker='o', color=COLOR_THEME['secondary'], label='Pre-GenAI')
+        
+        ax.set_ylabel('Adoption Rate (%)')
+        ax.set_xlabel('')
+        ax.set_title('AI Adoption Trends: Pre-GenAI vs GenAI Era')
+        ax.legend()
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        st.pyplot(fig)
     
     with col4:
         # Job Displacement vs Creation Over Time
@@ -373,33 +397,20 @@ with tab2:
             'jobs_displaced_count': 'sum',
             'jobs_created_count': 'sum'
         }).reset_index()
-        fig8 = go.Figure()
-        fig8.add_trace(go.Scatter(
-            x=time_jobs['year_quarter_label'],
-            y=time_jobs['jobs_displaced_count'],
-            mode='lines+markers+text',
-            name='Jobs Displaced',
-            line=dict(color=COLOR_THEME['danger']),
-            text=time_jobs['jobs_displaced_count'],
-            texttemplate='%{y:,.0f}',
-            textposition='top center'
-        ))
-        fig8.add_trace(go.Scatter(
-            x=time_jobs['year_quarter_label'],
-            y=time_jobs['jobs_created_count'],
-            mode='lines+markers+text',
-            name='Jobs Created',
-            line=dict(color=COLOR_THEME['success']),
-            text=time_jobs['jobs_created_count'],
-            texttemplate='%{y:,.0f}',
-            textposition='bottom center'
-        ))
-        fig8.update_layout(
-            title="Job Displacement vs Creation Over Time",
-            xaxis_title="",
-            yaxis_title="Number of Jobs"
-        )
-        st.plotly_chart(create_chart_template(fig8), use_container_width=True)
+        fig, ax = create_matplotlib_figure()
+        
+        ax.plot(time_jobs['year_quarter_label'], time_jobs['jobs_displaced_count'], 
+               marker='o', color=COLOR_THEME['danger'], label='Jobs Displaced')
+        ax.plot(time_jobs['year_quarter_label'], time_jobs['jobs_created_count'], 
+               marker='o', color=COLOR_THEME['success'], label='Jobs Created')
+        
+        ax.set_ylabel('Number of Jobs')
+        ax.set_xlabel('')
+        ax.set_title('Job Displacement vs Creation Over Time')
+        ax.legend()
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        st.pyplot(fig)
 
 # Tab 3: Reskilling Economics
 with tab3:
@@ -417,45 +428,37 @@ with tab3:
         industry_investment = industry_investment.copy()
         industry_investment['jobs_displaced_count'] = industry_investment['jobs_displaced_count'].fillna(0)
         industry_investment['reskilling_investment_usd'] = industry_investment['reskilling_investment_usd'].fillna(0)
-        fig9 = px.scatter(
-            industry_investment,
-            x='displacement_risk_index',
-            y='reskilling_investment_usd',
-            size='jobs_displaced_count',
-            hover_data=['industry_name'],
-            title="Reskilling Investment vs Displacement Risk",
-            color='displacement_risk_index',
-            color_continuous_scale='Reds',
-            custom_data=['industry_name', 'jobs_displaced_count']
-        )
-        fig9.update_xaxes(title_text="Displacement Risk Index")
-        fig9.update_yaxes(title_text="Reskilling Investment (USD)")
-        fig9.update_traces(
-            hovertemplate='<b>%{customdata[0]}</b><br>' +
-                           'Displacement Risk: %{x:.1f}<br>' +
-                           'Investment: $%{y:,.0f}<br>' +
-                           'Jobs Displaced: %{customdata[1]:,.0f}<extra></extra>'
-        )
-        st.plotly_chart(create_chart_template(fig9), use_container_width=True)
+        fig, ax = create_matplotlib_figure()
+        
+        scatter = ax.scatter(industry_investment['displacement_risk_index'], industry_investment['reskilling_investment_usd'], 
+                           s=industry_investment['jobs_displaced_count']/100, c=industry_investment['displacement_risk_index'], 
+                           cmap='Reds', alpha=0.6)
+        ax.set_xlabel('Displacement Risk Index')
+        ax.set_ylabel('Reskilling Investment (USD)')
+        ax.set_title('Reskilling Investment vs Displacement Risk')
+        plt.colorbar(scatter, ax=ax, label='Displacement Risk')
+        plt.tight_layout()
+        st.pyplot(fig)
     
     with col2:
         # Underfunded Sectors Analysis
         industry_investment['investment_per_displaced'] = industry_investment['reskilling_investment_usd'] / (industry_investment['jobs_displaced_count'] + 1)
         underfunded = industry_investment[industry_investment['investment_per_displaced'] < industry_investment['investment_per_displaced'].median()].sort_values('displacement_risk_index', ascending=False).head(10)
-        fig10 = px.bar(
-            underfunded,
-            x='investment_per_displaced',
-            y='industry_name',
-            orientation='h',
-            title="Underfunded High-Risk Sectors",
-            color='displacement_risk_index',
-            color_continuous_scale='Reds',
-            text='investment_per_displaced'
-        )
-        fig10.update_xaxes(title_text="Investment per Displaced Job (USD)")
-        fig10.update_yaxes(title_text="")
-        fig10.update_traces(texttemplate='$%{x:,.0f}', textposition='outside')
-        st.plotly_chart(create_chart_template(fig10), use_container_width=True)
+        fig, ax = create_matplotlib_figure()
+        
+        bars = ax.barh(underfunded['industry_name'], underfunded['investment_per_displaced'], 
+                      color=COLOR_THEME['danger'])
+        ax.set_xlabel('Investment per Displaced Job (USD)')
+        ax.set_ylabel('')
+        ax.set_title('Underfunded High-Risk Sectors')
+        
+        for bar in bars:
+            width = bar.get_width()
+            ax.text(width, bar.get_y() + bar.get_height()/2, f'${width:,.0f}', 
+                   ha='left', va='center')
+        
+        plt.tight_layout()
+        st.pyplot(fig)
     
     col3, col4 = st.columns(2)
     
@@ -468,20 +471,22 @@ with tab3:
         }).reset_index()
         country_net['net_growth'] = country_net['jobs_created_count'] - country_net['jobs_displaced_count']
         country_net = country_net.sort_values('net_growth', ascending=False).head(15)
-        fig11 = px.bar(
-            country_net,
-            x='net_growth',
-            y='country_name',
-            orientation='h',
-            color='development_tier',
-            title="Net Job Growth by Country (Top 15)",
-            color_discrete_map={'Developed': COLOR_THEME['primary'], 'Emerging': COLOR_THEME['warning']},
-            text='net_growth'
-        )
-        fig11.update_xaxes(title_text="Net Job Growth")
-        fig11.update_yaxes(title_text="")
-        fig11.update_traces(texttemplate='%{x:,.0f}', textposition='outside')
-        st.plotly_chart(create_chart_template(fig11), use_container_width=True)
+        fig, ax = create_matplotlib_figure()
+        
+        colors = [COLOR_THEME['primary'] if tier == 'Developed' else COLOR_THEME['warning'] 
+                 for tier in country_net['development_tier']]
+        bars = ax.barh(country_net['country_name'], country_net['net_growth'], color=colors)
+        ax.set_xlabel('Net Job Growth')
+        ax.set_ylabel('')
+        ax.set_title('Net Job Growth by Country (Top 15)')
+        
+        for bar in bars:
+            width = bar.get_width()
+            ax.text(width, bar.get_y() + bar.get_height()/2, f'{width:,.0f}', 
+                   ha='left', va='center')
+        
+        plt.tight_layout()
+        st.pyplot(fig)
     
     with col4:
         # Reskilling ROI Analysis
@@ -492,27 +497,17 @@ with tab3:
         }).reset_index()
         skill_reskilling['abs_net_growth'] = skill_reskilling['net_job_growth'].abs()
         skill_reskilling['abs_net_growth'] = skill_reskilling['abs_net_growth'].fillna(0)
-        fig12 = px.scatter(
-            skill_reskilling,
-            x='median_reskilling_duration_months',
-            y='reskilling_investment_usd',
-            size='abs_net_growth',
-            hover_data=['skill_category_name', 'net_job_growth'],
-            title="Reskilling Duration vs Investment",
-            color='net_job_growth',
-            color_continuous_scale='RdYlGn',
-            custom_data=['skill_category_name', 'net_job_growth']
-        )
-        fig12.update_xaxes(title_text="Median Reskilling Duration (Months)")
-        fig12.update_yaxes(title_text="Total Reskilling Investment (USD)")
-        fig12.update_traces(
-            marker=dict(sizemode='diameter', sizeref=0.1),
-            hovertemplate='<b>%{customdata[0]}</b><br>' +
-                           'Duration: %{x:.1f} months<br>' +
-                           'Investment: $%{y:,.0f}<br>' +
-                           'Net Job Growth: %{customdata[1]:,.0f}<extra></extra>'
-        )
-        st.plotly_chart(create_chart_template(fig12), use_container_width=True)
+        fig, ax = create_matplotlib_figure()
+        
+        scatter = ax.scatter(skill_reskilling['median_reskilling_duration_months'], skill_reskilling['reskilling_investment_usd'], 
+                           s=skill_reskilling['abs_net_growth']/100, c=skill_reskilling['net_job_growth'], 
+                           cmap='RdYlGn', alpha=0.6)
+        ax.set_xlabel('Median Reskilling Duration (Months)')
+        ax.set_ylabel('Total Reskilling Investment (USD)')
+        ax.set_title('Reskilling Duration vs Investment')
+        plt.colorbar(scatter, ax=ax, label='Net Job Growth')
+        plt.tight_layout()
+        st.pyplot(fig)
 
 # Tab 4: Cross-Dimensional Analysis
 with tab4:
@@ -565,88 +560,72 @@ with tab4:
                 'jobs_created_count': 'sum'
             }).reset_index()
             
-            fig13 = go.Figure()
-            fig13.add_trace(go.Scatter(
-                x=time_series['year_quarter_label'],
-                y=time_series['ai_adoption_rate'],
-                mode='lines+markers+text',
-                name='AI Adoption Rate',
-                yaxis='y',
-                text=time_series['ai_adoption_rate'],
-                texttemplate='%{y:.1f}%',
-                textposition='top center'
-            ))
-            fig13.add_trace(go.Scatter(
-                x=time_series['year_quarter_label'],
-                y=time_series['displacement_risk_index'],
-                mode='lines+markers+text',
-                name='Displacement Risk',
-                yaxis='y2',
-                text=time_series['displacement_risk_index'],
-                texttemplate='%{y:.1f}',
-                textposition='bottom center'
-            ))
-            fig13.update_layout(
-                title="AI Adoption & Displacement Risk Over Time",
-                yaxis=dict(title="Adoption Rate (%)", side="left"),
-                yaxis2=dict(title="Risk Index", overlaying="y", side="right"),
-                legend=dict(x=0.01, y=0.99)
-            )
-            st.plotly_chart(create_chart_template(fig13), use_container_width=True)
+            fig, ax1 = create_matplotlib_figure()
+            ax2 = ax1.twinx()
+            
+            ax1.plot(time_series['year_quarter_label'], time_series['ai_adoption_rate'], 
+                    marker='o', color=COLOR_THEME['primary'], label='AI Adoption Rate')
+            ax2.plot(time_series['year_quarter_label'], time_series['displacement_risk_index'], 
+                    marker='o', color=COLOR_THEME['danger'], label='Displacement Risk')
+            
+            ax1.set_ylabel('Adoption Rate (%)', color=COLOR_THEME['primary'])
+            ax2.set_ylabel('Risk Index', color=COLOR_THEME['danger'])
+            ax1.set_xlabel('')
+            ax1.set_title('AI Adoption & Displacement Risk Over Time')
+            ax1.tick_params(axis='y', labelcolor=COLOR_THEME['primary'])
+            ax2.tick_params(axis='y', labelcolor=COLOR_THEME['danger'])
+            plt.xticks(rotation=45, ha='right')
+            plt.tight_layout()
+            st.pyplot(fig)
         
         with col2:
-            # Comprehensive Metrics Radar
+            # Comprehensive Metrics Overview (Bar chart instead of radar)
             metrics = cross_filtered[['ai_adoption_rate', 'displacement_risk_index', 
                                      'productivity_impact_score', 'avg_wage_change_pct']].mean()
             
-            fig14 = go.Figure(data=go.Scatterpolar(
-                r=metrics.values,
-                theta=metrics.index,
-                fill='toself',
-                name='Current Selection',
-                text=metrics.values,
-                texttemplate='%{r:.1f}',
-                textposition='top center'
-            ))
-            fig14.update_layout(
-                polar=dict(radialaxis=dict(visible=True)),
-                title="Comprehensive Metrics Overview"
-            )
-            fig14.update_traces(
-                hovertemplate='<b>%{theta}</b><br>Value: %{r:.1f}<extra></extra>'
-            )
-            st.plotly_chart(create_chart_template(fig14), use_container_width=True)
+            fig, ax = create_matplotlib_figure()
+            
+            bars = ax.bar(metrics.index, metrics.values, color=COLOR_THEME['primary'])
+            ax.set_ylabel('Value')
+            ax.set_title('Comprehensive Metrics Overview')
+            plt.xticks(rotation=45, ha='right')
+            
+            for bar in bars:
+                height = bar.get_height()
+                ax.text(bar.get_x() + bar.get_width()/2., height, f'{height:.1f}', 
+                       ha='center', va='bottom')
+            
+            plt.tight_layout()
+            st.pyplot(fig)
         
         col3, col4 = st.columns(2)
         
         with col3:
             # AI Tool Usage Analysis
             usage_data = cross_filtered.groupby(['year_quarter_label'])['ai_tool_usage_hours_per_week'].mean().reset_index()
-            fig15 = px.area(
-                usage_data,
-                x='year_quarter_label',
-                y='ai_tool_usage_hours_per_week',
-                title="AI Tool Usage Hours Per Week",
-                color_discrete_sequence=[COLOR_THEME['primary']],
-                text='ai_tool_usage_hours_per_week'
-            )
-            fig15.update_yaxes(title_text="Hours per Week")
-            fig15.update_traces(texttemplate='%{y:.1f}h', textposition='top center')
-            st.plotly_chart(create_chart_template(fig15), use_container_width=True)
+            fig, ax = create_matplotlib_figure()
+            
+            ax.fill_between(usage_data['year_quarter_label'], usage_data['ai_tool_usage_hours_per_week'], 
+                           alpha=0.3, color=COLOR_THEME['primary'])
+            ax.plot(usage_data['year_quarter_label'], usage_data['ai_tool_usage_hours_per_week'], 
+                   marker='o', color=COLOR_THEME['primary'])
+            ax.set_ylabel('Hours per Week')
+            ax.set_xlabel('')
+            ax.set_title('AI Tool Usage Hours Per Week')
+            plt.xticks(rotation=45, ha='right')
+            plt.tight_layout()
+            st.pyplot(fig)
         
         with col4:
             # Workforce Size Distribution
             workforce_dist = cross_filtered.groupby('industry_name')['workforce_size'].sum().sort_values(ascending=False).head(10)
-            fig16 = px.pie(
-                values=workforce_dist.values,
-                names=workforce_dist.index,
-                title="Workforce Distribution by Industry"
-            )
-            fig16.update_traces(
-                textinfo='label+percent+value',
-                hovertemplate='<b>%{label}</b><br>Workforce: %{value:,.0f}<br>Percentage: %{percent}<extra></extra>'
-            )
-            st.plotly_chart(create_chart_template(fig16), use_container_width=True)
+            fig, ax = create_matplotlib_figure()
+            
+            ax.pie(workforce_dist.values, labels=workforce_dist.index, autopct='%1.1f%%', 
+                  startangle=90, colors=sns.color_palette("husl", len(workforce_dist)))
+            ax.set_title('Workforce Distribution by Industry')
+            plt.tight_layout()
+            st.pyplot(fig)
         
         # Detailed Data Table
         st.subheader("Detailed Data View")
