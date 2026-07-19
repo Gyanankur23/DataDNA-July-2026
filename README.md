@@ -7,6 +7,8 @@
 
 > A high-fidelity, interactive Streamlit dashboard analyzing global AI adoption and workforce displacement patterns across industries, regions, and skill categories.
 
+**🚀 Live Demo:** [https://datadna-july-2026-u2v5gszt35cjey4hcyyfqi.streamlit.app/](https://datadna-july-2026-u2v5gszt35cjey4hcyyfqi.streamlit.app/)
+
 ## 🌟 Features
 
 ### 📊 Comprehensive Analytics
